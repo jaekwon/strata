@@ -2099,7 +2099,7 @@ class Mutator extends Iterator
     else
       @_io.uncacheRecord @_page, @_page.positions[index]
       @_io.splice @_page, index, 1
-      @length = @_page.length
+      @length = @_page.length - @_page.offset
 
 # #### Insertion and Deletion Versus Balance
 #
