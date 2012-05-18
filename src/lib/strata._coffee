@@ -83,6 +83,9 @@
 # order of a branch page to be the maximum number of child pages, while the
 # order of a leaf page to be the maximum number of records.
 #
+# We arbitrarily chosen ***count*** to mean the actual number of child pages in
+# a branch page or the actual number of records in a leaf page.
+#
 # **TODO**: We introduce the term order here, but use length throughout the code
 # and documentation.
 #
@@ -383,15 +386,15 @@ class IO
   # #### Pages Held for Housekeeping
   #
   # There may be page objects loaded for housekeeping only. When balancing the
-  # tree, the page length of a page is needed to determine if the page needs to
-  # be split, or if it can merged with a sibling page.
+  # tree, the order of a page is needed to determine if the page needs to be
+  # split, or if it can merged with a sibling page.
   #
-  # We only need the length of the page to create our balance plan, however, not
-  # the cached references and records. The page object keeps a copy of the
-  # length in a `length` property. We can delete the page's reference array, as
-  # well as the page's object cache. The page object the page entry itself
-  # cannot be removed from the cache until it is no longer needed to calculate a
-  # split or merge.
+  # We only need the order of the page to create our balance plan, however, not
+  # the cached references and records. The page object keeps a copy of the order
+  # in a `order` property. We can delete the page's reference array, as well as
+  # the page's object cache. The page object the page entry itself cannot be
+  # removed from the cache until it is no longer needed to calculate a split or
+  # merge.
   #
   # We use reference counting to determine if an entry is participating in
   # balance calculations. If the page is being referenced by a balancer, we
@@ -466,9 +469,9 @@ class IO
   #
   # #### Leaf Page Split
   #
-  # If the record count of leaf page, the page length, exceeds the leaf page
-  # order, the leaf page is split.
-
+  # If the record count of leaf page, the order, exceeds the leaf page order,
+  # the leaf page is split.
+  #
   # The in memory representation of the leaf page includes the address of the
   # leaf page, the page address of the next leaf page, and a cache that maps
   # record file positions to records that have been loaded from the file.
@@ -2091,15 +2094,18 @@ class Mutator extends Iterator
     fd = fs.open filename, "a", 0o644, _
     position = @_io.writeDelete fd, @_page, index, ghost, _
     fs.close fd, _
-    
+
+    # If we've created a ghost record, we don't delete the record, we simply
+    # move the `offset` for the page forward to `1`. If the current offset of
+    # the cursor is `0`, we move that forward to `1`. Otherwise, we uncache and
+    # splice the record.
     if ghost
-      # **TODO**: If offset is not at 0?
       @_page.offset++
-      @offset++
+      @offset or @offset++
     else
       @_io.uncacheRecord @_page, @_page.positions[index]
       @_io.splice @_page, index, 1
-      @length = @_page.length - @_page.offset
+      @length = @_page.length
 
 # #### Insertion and Deletion Versus Balance
 #
@@ -2567,11 +2573,17 @@ class Balancer
     @operations = []
     @referenced = {}
 
+  # Mark a page as having been altered, now requiring a test for balance. If the
+  # `force` flag is set, the value is set to the leaf order, so that if the
+  # record count of the page is less than the order of the leaf page, it will be
+  # test for merge. If it is greater than the order of the leaf page, it will be
+  # split. Of course, if it the order of the page, it can not be merged, nor
+  # should it be split.
   unbalanced: (page, force) ->
     if force
       @lengths[page.address] = @leafSize
     else
-      @lengths[page.address]?= page.length
+      @lengths[page.address]?= page.length - page.offset
 
   # TODO If it is not exposed to the user, I don't underbar it.
   reference: (page) ->
