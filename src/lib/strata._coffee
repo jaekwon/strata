@@ -585,28 +585,39 @@ class IO
 
   # ### Leaf Page Journal
   #
-  #
-  # TODO address array objects are actually reference objects, or position
-  # objects? Right.
-  #
   # The leaf page acts as an edit journal recording edit events. Each event is
-  # stored as a ***journal entry***. 
+  # stored as a ***journal entry***. These journal entires are appended to the
+  # leaf page files as JSON arrays, one JSON array per line in the file.
   #
-  # These journal entires are stored as JSON arrays. There are four types of
-  # journal
-  # entires recorded in a leaf page, a leaf page ***create entries***, ***insert
+  # There are three types of journal entires recorded in a leaf page; ***insert
   # entires***, ***delete entries***, and ***position array entries***.
   #
-  # **TODO**: Document *create entry* when they've been implemented.
-  # **TODO**: Instead, start with a *position array entry*.
+  # The insert and delete entries record changes to the the leaf page. Beginning
+  # with an empty position array and reading from the start of the file, the
+  # leaf tier is reconstituted by replaying the inserts and deletes described by
+  # the insert and delete entries.
   #
-  # An insert entry contains a ***record*** and the index in the position array
-  # where the record's position would be inserted to preserve the sort order of
-  # the position array.
+  # Position array entries record the state of the position array later on in
+  # the history of the leaf page file, so that we don't have to replay the
+  # entire history of the leaf page file in order to load the leaf page.
   #
-  # Beginning with an empty position array and reading from the start of the
-  # file, the leaf tier is reconstituted by replaying the inserts and deletes
-  # described by the insert and delete entries.
+  # #### Position Array
+  #
+  # Each leaf page has a ***position array***. The position array references the
+  # position in the leaf page file where an insert entry records the insertion
+  # fo a record into the leaf page. When we want the record, if it is not in
+  # memory, then we read it from the leaf page file at the given file position.
+  #
+  # When the record has been read from the leaf page file, it is cached in the
+  # `cache` object property of the in&#x2011;memory page object indexed by its
+  # file position.
+  #
+  # When we write an insert entry, we take note of the insert entries file
+  # position in the leaf page and use that position as its place holder in the
+  # position array.
+  e
+  # The position array mainatins the file positions of the inert entries in the
+  # collation order of the b&#x2011;tree.
   #
   # #### Insert Entries
   #
@@ -628,35 +639,32 @@ class IO
 
   # #### Delete Entries
   #
-  # If the first element of our insert object is less than zero, it indicates a
-  # delete entry. The absolute value of the integer is the one based index into
-  # the zero based position array, indicating the index of address array element
-  # that should be deleted.
+  # If the first element of our entry is less than zero, it indicates a delete
+  # entry. The absolute value of the integer is the one based index into the
+  # zero based position array, indicating the index of the position array
+  # element that should be deleted.
   #
-  # Note that the record of a leaf page is not actually deleted from their
+  # Special handling of a deleted first record is required when we replay the
+  # journal. The first record of a leaf page is not actually deleted from their
   # in-memory pages, but ghosted. We keep them around because the key of the
-  # first record is the key for a page. However, there is no special accounting
-  # necessary to record the fact that the first record is a ghost in the delete
-  # entry. We can see that it was the first record that was deleted. Special
-  # handling of a deleted first record is required when we replay the journal.
+  # first record is the key for a page.
   #
-  # There are no other elements in the delete object.
+  # There is no special accounting necessary to record the fact that the first
+  # record is a ghost in the delete entry. We can see that it was the first
+  # record that was deleted.
+  #
+  # There are no other elements in the JSON array for a delete entry, just the
+  # negated one&#x2011;based index of the record to delete.
 
   # Write a delete object.
   writeDelete: (fd, page, index, _) ->
     @_writeJSON fd, page, [ -(index + 1) ], _
 
-  # * **TODO** Document `ghost`.
-  # * **TODO** Ensure that we are correctly loading a ghost.
-  # * **TODO** Ensure that we are correctly rewriting a ghost, or else that they
-  # are never rewritten.
-  
   # #### Position Array Entires
   #
-  # On occasion, we can store a position array entry. An position array entry
-  # contains the position array itself. We store a copy of a constructed
-  # position array entry in the leaf page file so that we can read a large leaf
-  # page file quickly.
+  # An position array entry contains the position array itself. On occasion, we
+  # store a copy of a constructed position array entry in the leaf page file so
+  # that we can read a large leaf page file quickly.
   #
   # When we read a leaf page file, if we read from the back of the file toward
   # the front, we can read backward until we find a position array entry. Then
@@ -670,7 +678,7 @@ class IO
   # with the inserts and deletes that occurred after it was written.
   #
   # Not all of the records will be loaded when we go backwards, but we have
-  # their file position from the address array, so we can jump to them and load
+  # their file position from the position array, so we can jump to them and load
   # them as we need them. That is, if we need them, because owing to binary
   # search, we might only need a few records out of a great many records to find
   # the record we're looking for.
