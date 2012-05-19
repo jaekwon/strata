@@ -1,6 +1,6 @@
 #!/usr/bin/env _coffee
 fs = require "fs"
-require("./proof") 3, ({ Strata, directory, fixture: { serialize, load, objectify } }, _) ->
+require("./proof") 5, ({ Strata, directory, fixture: { serialize, load, objectify } }, _) ->
   serialize "#{__dirname}/fixtures/delete.json", directory, _
 
   strata = new Strata directory: directory, leafSize: 3, branchSize: 3
@@ -25,3 +25,27 @@ require("./proof") 3, ({ Strata, directory, fixture: { serialize, load, objectif
   cursor.unlock()
 
   @deepEqual records, [ "c", "d" ], "deleted"
+
+  expected = load "#{__dirname}/fixtures/ghost.after.json", _
+  actual = objectify directory, _
+
+  @say expected
+  @say actual
+
+  @deepEqual actual, expected, "directory"
+
+  strata.close _
+
+  strata = new Strata directory: directory, leafSize: 3, branchSize: 3
+  strata.open _
+
+  records = []
+  cursor = strata.iterator "a", _
+  @equal cursor.offset, 1, "ghosted"
+  for i in [cursor.offset...cursor.length]
+    records.push cursor.get i, _
+  cursor.unlock()
+
+  @deepEqual records, [ "c", "d" ], "reopened"
+
+  strata.close _
